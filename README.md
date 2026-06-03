@@ -6,10 +6,10 @@
 
 ```
 beryllium-be-there/
-├── beryllium-server/    # Go 语言后端服务
-├── beryllium-manage/    # 管理端前端 (Next.js)
-├── beryllium-signin/    # 签到端前端 (Next.js)
-├── publish.sh           # 一键构建发布脚本
+├── beryllium-server/       # Go 语言后端服务
+├── beryllium-manage/       # 管理端前端 (Next.js)
+├── beryllium-signin/       # 签到端前端 (Next.js)
+├── publish.sh              # 一键多平台构建发布脚本
 └── README.md
 ```
 
@@ -31,16 +31,36 @@ beryllium-be-there/
 | 管理端 | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | 签到端 | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | 数据库 | JSON 文件（演示项目） |
-| 密码安全 | bcrypt |
-| 传输加密 | RSA-2048 OAEP + SHA-256 |
+| 密码存储 | bcrypt |
+| 传输加密 | RSA-2048 PKCS#1 v1.5（jsencrypt 纯 JS 实现） |
+| 配置管理 | TOML 配置文件 + 环境变量覆盖 |
 
 ## 核心设计
 
 ### 安全机制
 
 1. **管理员认证**：基于 Bearer Token 的会话管理，Token 由 `crypto/rand` 生成，2 小时过期
-2. **密码存储**：所有密码使用 bcrypt 哈希后存储，禁止明文
-3. **签到密码传输**：每个课堂创建时生成 RSA-2048 密钥对。签到页面获取公钥，使用 Web Crypto API (RSA-OAEP) 加密密码后提交，服务端使用私钥解密后验证
+2. **密码存储**：所有密码使用 bcrypt 哈希后存储
+3. **签到密码传输**：每个课堂创建时生成 RSA-2048 密钥对（PEM 格式）。签到页面获取公钥后使用 [jsencrypt](https://github.com/travist/jsencrypt)（纯 JavaScript 实现，无需 HTTPS）加密密码提交，服务端使用私钥解密后 bcrypt 验证
+
+> **为什么用 jsencrypt 而不是 Web Crypto API？**
+> 浏览器 `crypto.subtle` 仅在安全上下文（HTTPS 或 localhost）中可用。课堂场景中，学生通过 `http://192.168.x.x:8080` 访问签到页面属于非安全上下文，`crypto.subtle` 不可用。jsencrypt 是纯 JS 的 RSA 实现，不受此限制。
+
+### 配置系统
+
+配置优先级（由低到高）：
+
+1. **默认值** — 端口 `8080`，主机名自动检测
+2. **config.toml 文件** — `port` 和 `hostname` 配置项
+3. **环境变量** — `PORT`、`HOSTNAME` 可覆盖文件配置
+
+```toml
+# config.toml
+port = 8080
+hostname = ""
+```
+
+`hostname` 留空时，服务器自动遍历本机网卡获取局域网 IPv4 地址，用于生成签到链接和二维码。
 
 ### 签到流程
 
@@ -50,13 +70,14 @@ beryllium-be-there/
 └──────┬──────┘     └──────┬───────┘     └──────┬──────┘
        │  GET /signin/{id}  │                    │
        │ ──────────────────>│                    │
-       │                    │ 查询课堂 + 公钥     │
+       │                    │ 查询课堂 + PEM公钥  │
        │                    │ ──────────────────>│
        │  HTML + 注入公钥    │                    │
        │ <──────────────────│                    │
        │                    │                    │
        │  用户输入账号密码    │                    │
-       │  RSA-OAEP 加密密码  │                    │
+       │  jsencrypt 加密密码 │                    │
+       │  (PKCS#1 v1.5)     │                    │
        │                    │                    │
        │  POST /signin/{id} │                    │
        │ ──────────────────>│                    │
@@ -72,9 +93,9 @@ beryllium-be-there/
 ### 数据模型
 
 ```
-Admin       { Username, PasswordHash }
-Student     { Account (PK), Name, PasswordHash }
-Class       { ClassID (UUID), Name, PublicKey, PrivateKey, CreatedAt }
+Admin        { Username, PasswordHash }
+Student      { Account (PK), Name, PasswordHash }
+Class        { ClassID (UUID), Name, PublicKey, PrivateKey, CreatedAt }
 SignInRecord { StudentAccount, IsPresent, SignedAt }
 ```
 
@@ -90,14 +111,14 @@ SignInRecord { StudentAccount, IsPresent, SignedAt }
 | DELETE | `/api/students/{account}` | Yes | 删除学生 |
 | GET | `/api/classes` | Yes | 课堂列表 |
 | POST | `/api/classes` | Yes | 创建课堂（生成 UUID + RSA 密钥对） |
-| GET | `/api/classes/{id}` | Yes | 课堂详情（含签到状态） |
+| GET | `/api/classes/{id}` | Yes | 课堂详情（含签到状态和签到链接） |
 | DELETE | `/api/classes/{id}` | Yes | 删除课堂 |
-| GET | `/api/classes/{id}/public-key` | No | 获取课堂 RSA 公钥 |
+| GET | `/api/classes/{id}/public-key` | No | 获取课堂 RSA 公钥（PEM 格式） |
 | GET | `/api/classes/{id}/attendance` | Yes | 签到记录列表 |
 | POST | `/api/classes/{id}/attendance` | Yes | 初始化签到表 |
 | PATCH | `/api/classes/{id}/attendance` | Yes | 手动修改签到状态 |
 | GET | `/api/classes/{id}/export` | Yes | 导出 CSV |
-| GET | `/signin/{classId}` | No | 签到页面（注入 classId + 公钥） |
+| GET | `/signin/{classId}` | No | 签到页面（注入 classId + PEM 公钥） |
 | POST | `/signin/{classId}` | No | 提交签到 |
 
 ## 快速开始
@@ -133,13 +154,41 @@ npm run dev
 ### 生产构建
 
 ```bash
-# 一键构建发布
+# 构建所有平台（darwin/linux/windows, amd64/arm64）
 ./publish.sh
 
-# 运行
-cd publish/
+# 仅构建指定平台
+./publish.sh linux/amd64
+
+# 清理构建产物
+./publish.sh clean
+```
+
+发布目录结构：
+
+```
+publish/
+├── darwin-amd64/          # macOS Intel
+│   ├── beryllium-be-there
+│   ├── config.toml
+│   ├── manage/
+│   └── signin/
+├── darwin-arm64/          # macOS Apple Silicon
+├── linux-amd64/           # Linux x86_64
+├── linux-arm64/           # Linux ARM64
+└── windows-amd64/         # Windows x64
+    ├── beryllium-be-there.exe
+    ├── config.toml
+    ├── manage/
+    └── signin/
+```
+
+运行方法：
+
+```bash
+cd publish/<platform>
 ./beryllium-be-there
-# 访问 http://localhost:8080
+# 访问 http://{host}:8080
 ```
 
 ## 项目结构
@@ -149,8 +198,8 @@ cd publish/
 ```
 beryllium-server/
 ├── main.go                     # 入口，路由注册
-├── go.mod
-├── go.sum
+├── go.mod / go.sum
+├── config.toml                 # 服务器配置文件
 ├── data/                       # 运行时 JSON 数据库（自动生成）
 │   ├── admins.json
 │   ├── students.json
@@ -158,6 +207,7 @@ beryllium-server/
 │   └── attendance/
 │       └── {classId}.json
 └── internal/
+    ├── config/config.go        # TOML 配置加载 + IP 自动检测
     ├── model/models.go         # 数据结构定义
     ├── store/
     │   ├── json.go             # JSON 读写工具
@@ -167,18 +217,18 @@ beryllium-server/
     │   └── attendance_store.go # 签到记录持久化
     ├── crypto/
     │   ├── password.go         # bcrypt 密码哈希
-    │   ├── rsa.go              # RSA 密钥生成与加解密
+    │   ├── rsa.go              # RSA 密钥生成与 PKCS#1 v1.5 加解密
     │   └── uuid.go             # UUID v4 生成
     ├── auth/session.go         # Token 会话管理
     └── handler/
         ├── helpers.go          # 通用工具函数
         ├── auth.go             # 登录/登出接口
         ├── student.go          # 学生 CRUD 接口
-        ├── class.go            # 课堂管理接口
+        ├── class.go            # 课堂管理接口（含签到 URL 生成）
         ├── attendance.go       # 签到状态接口
         ├── export.go           # CSV 导出接口
-        ├── signin.go           # 签到页面 + 签到提交
-        └── static.go           # 前端静态文件服务
+        ├── signin.go           # 签到页面 + 签到提交（含回退 HTML）
+        └── static.go           # 前端静态文件服务（多路径探测）
 ```
 
 ### beryllium-manage（管理端前端）
@@ -188,16 +238,16 @@ beryllium-manage/
 ├── app/
 │   ├── layout.tsx              # 根布局
 │   ├── page.tsx                # 登录页
-│   ├── globals.css             # Tailwind 样式
+│   ├── globals.css             # Tailwind 主题定义
 │   ├── student-manage/
-│   │   └── page.tsx            # 学生管理
+│   │   └── page.tsx            # 学生管理（添加/删除/列表）
 │   ├── class-manage/
-│   │   └── page.tsx            # 课堂管理 + 签到详情
+│   │   └── page.tsx            # 课堂管理 + 签到详情（QR 码 + CSV 导出）
 │   └── lib/
-│       ├── api.ts              # API 请求封装
-│       ├── auth.ts             # Token 管理
+│       ├── api.ts              # API 请求封装（自动检测生产/开发模式）
+│       ├── auth.ts             # Token 本地存储管理
 │       └── types.ts            # TypeScript 类型定义
-├── next.config.ts
+├── next.config.ts              # output: 'export'
 ├── package.json
 └── tsconfig.json
 ```
@@ -208,19 +258,19 @@ beryllium-manage/
 beryllium-signin/
 ├── app/
 │   ├── layout.tsx              # 根布局
-│   ├── page.tsx                # 签到表单
-│   ├── globals.css             # Tailwind 样式
+│   ├── page.tsx                # 签到表单（使用 window.location.origin）
+│   ├── globals.css             # Tailwind 主题定义
 │   └── lib/
-│       ├── crypto.ts           # RSA-OAEP 加密（Web Crypto API）
-│       └── globals.d.ts        # 全局类型声明
-├── next.config.ts
+│       ├── crypto.ts           # jsencrypt RSA 加密（纯 JS，无需 HTTPS）
+│       └── globals.d.ts        # 全局类型声明（注入变量）
+├── next.config.ts              # output: 'export', assetPrefix: '/signin'
 ├── package.json
 └── tsconfig.json
 ```
 
 ## 代码规范
 
-- **类型安全**：Go 禁止 `interface{}`，TypeScript 禁止 `any`
+- **类型安全**：Go 使用 `any` 替代 `interface{}`，TypeScript 禁止 `any`
 - **导入顺序**：标准库 → 第三方库 → 自定义库
 - **注释**：每个导出函数/方法开头简要描述功能
 - **安全**：密码使用 bcrypt，禁止 DES/MD5
