@@ -26,7 +26,7 @@ export default function SignInPage() {
     if (match) {
       const id = match[1];
       setClassId(id);
-      fetch(`http://localhost:8080/api/classes/${id}/public-key`)
+      fetch(`${window.location.origin}/api/classes/${id}/public-key`)
         .then((res) => res.json())
         .then((data) => setPublicKey(data.public_key))
         .catch(() => {
@@ -51,7 +51,7 @@ export default function SignInPage() {
     try {
       const encryptedPassword = await encryptPassword(publicKey, password);
       const res = await fetch(
-        `http://localhost:8080/signin/${classId}`,
+        `${window.location.origin}/signin/${classId}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

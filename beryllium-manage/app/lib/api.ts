@@ -7,7 +7,15 @@ import type {
   AttendanceEntry,
 } from "./types";
 
-const API_BASE = "http://localhost:8080";
+// In production (served by Go on :8080), use same origin.
+// In development (Next.js on :3000), use the Go backend directly.
+function getAPIBase(): string {
+  if (typeof window === "undefined") return "http://localhost:8080";
+  if (window.location.port === "8080") return "";
+  return "http://localhost:8080";
+}
+
+const API_BASE = getAPIBase();
 
 async function request<T>(
   path: string,

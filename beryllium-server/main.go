@@ -8,15 +8,23 @@ import (
 	"time"
 
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/auth"
+	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/config"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/handler"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/store"
 )
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	// Load configuration
+	cfgPath := os.Getenv("CONFIG_PATH")
+	if cfgPath == "" {
+		cfgPath = "config.toml"
 	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		log.Printf("Warning: failed to load config: %v (using defaults)", err)
+		cfg = config.DefaultConfig()
+	}
+
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
 		dataDir = "data"
@@ -48,7 +56,7 @@ func main() {
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(adminStore, sessions)
 	studentHandler := handler.NewStudentHandler(studentStore, attendanceStore)
-	classHandler := handler.NewClassHandler(classStore, attendanceStore, studentStore)
+	classHandler := handler.NewClassHandler(classStore, attendanceStore, studentStore, cfg.Hostname, cfg.Port)
 	attendanceHandler := handler.NewAttendanceHandler(classStore, studentStore, attendanceStore)
 	exportHandler := handler.NewExportHandler(classStore, studentStore, attendanceStore)
 	signinHandler := handler.NewSigninHandler(classStore, studentStore, attendanceStore)
@@ -91,7 +99,7 @@ func main() {
 	// Apply CORS middleware
 	corsHandler := corsMiddleware(mux)
 
-	addr := fmt.Sprintf(":%s", port)
+	addr := fmt.Sprintf(":%d", cfg.Port)
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      corsHandler,
@@ -99,9 +107,10 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Printf("Server starting on http://localhost%s", addr)
-	log.Printf("Manage: http://localhost%s/", addr)
-	log.Printf("Signin: http://localhost%s/signin/{class-id}", addr)
+	baseURL := fmt.Sprintf("http://%s:%d", cfg.Hostname, cfg.Port)
+	log.Printf("Server starting on %s", baseURL)
+	log.Printf("Manage:   %s/", baseURL)
+	log.Printf("Signin:   %s/signin/{class-id}", baseURL)
 	log.Fatal(server.ListenAndServe())
 }
 

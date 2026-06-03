@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/model"
@@ -13,11 +14,13 @@ type ClassHandler struct {
 	classStore      *store.ClassStore
 	attendanceStore *store.AttendanceStore
 	studentStore    *store.StudentStore
+	hostname        string
+	port            int
 }
 
 // NewClassHandler creates a ClassHandler.
-func NewClassHandler(classStore *store.ClassStore, attendanceStore *store.AttendanceStore, studentStore *store.StudentStore) *ClassHandler {
-	return &ClassHandler{classStore: classStore, attendanceStore: attendanceStore, studentStore: studentStore}
+func NewClassHandler(classStore *store.ClassStore, attendanceStore *store.AttendanceStore, studentStore *store.StudentStore, hostname string, port int) *ClassHandler {
+	return &ClassHandler{classStore: classStore, attendanceStore: attendanceStore, studentStore: studentStore, hostname: hostname, port: port}
 }
 
 // List handles GET /api/classes.
@@ -105,12 +108,8 @@ func (h *ClassHandler) Detail(w http.ResponseWriter, r *http.Request) {
 		Attendance  []model.AttendanceEntry `json:"attendance"`
 		SigninURL   string                  `json:"signin_url"`
 	}
-	// Construct signin URL from the request host
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	signinURL := scheme + "://" + r.Host + "/signin/" + class.ClassID
+	// Construct signin URL using configured hostname
+	signinURL := fmt.Sprintf("http://%s:%d/signin/%s", h.hostname, h.port, class.ClassID)
 
 	writeJSON(w, http.StatusOK, detailResponse{
 		ClassID:    class.ClassID,
