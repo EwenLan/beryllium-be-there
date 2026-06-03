@@ -253,12 +253,16 @@ function ClassDetailView({
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [initializing, setInitializing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const loadDetail = useCallback(async () => {
     try {
       const data = await fetchClassDetail(classId);
       setDetail(data);
+      setLastUpdated(new Date());
+      setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     }
@@ -267,6 +271,15 @@ function ClassDetailView({
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+
+  // Poll for attendance updates every 3 seconds
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      loadDetail();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [loadDetail, autoRefresh]);
 
   useEffect(() => {
     if (detail?.signin_url && canvasRef.current) {
@@ -405,29 +418,58 @@ function ClassDetailView({
         </div>
 
         {/* Action bar */}
-        <div className="flex gap-3 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3">
-          {detail.attendance.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 bg-zinc-50/50 px-6 py-3">
+          <div className="flex gap-3">
+            {detail.attendance.length === 0 ? (
+              <button
+                onClick={handleInitAttendance}
+                disabled={initializing}
+                className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white
+                  transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {initializing ? "初始化中..." : "初始化签到表"}
+              </button>
+            ) : (
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white
+                  transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                {exporting ? "导出中..." : "导出 CSV"}
+              </button>
+            )}
+          </div>
+
+          {/* Refresh controls */}
+          <div className="flex items-center gap-3 text-xs text-muted">
+            {lastUpdated && (
+              <span title="上次刷新时间">
+                更新于 {lastUpdated.toLocaleTimeString("zh-CN")}
+              </span>
+            )}
             <button
-              onClick={handleInitAttendance}
-              disabled={initializing}
-              className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white
-                transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => loadDetail()}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-zinc-200 transition-colors"
+              title="手动刷新"
             >
-              {initializing ? "初始化中..." : "初始化签到表"}
-            </button>
-          ) : (
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white
-                transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              <svg className={`h-3.5 w-3.5 ${autoRefresh ? "" : "animate-spin"}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
               </svg>
-              {exporting ? "导出中..." : "导出 CSV"}
             </button>
-          )}
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-zinc-300 text-primary focus:ring-primary"
+              />
+              自动刷新
+            </label>
+          </div>
         </div>
       </div>
 
