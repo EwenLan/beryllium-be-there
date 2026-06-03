@@ -31,11 +31,21 @@ func main() {
 	}
 	manageDir := os.Getenv("MANAGE_DIR")
 	if manageDir == "" {
-		manageDir = findDir("../beryllium-manage/out", "beryllium-manage/out")
+		manageDir = findDir(
+			"../beryllium-manage/out", // dev: run from beryllium-server/
+			"beryllium-manage/out",    // dev: run from project root
+			"manage",                  // prod: publish package
+			"./manage",                // prod: publish package (explicit)
+		)
 	}
 	signinDir := os.Getenv("SIGNIN_DIR")
 	if signinDir == "" {
-		signinDir = findDir("../beryllium-signin/out", "beryllium-signin/out")
+		signinDir = findDir(
+			"../beryllium-signin/out", // dev: run from beryllium-server/
+			"beryllium-signin/out",    // dev: run from project root
+			"signin",                  // prod: publish package
+			"./signin",                // prod: publish package (explicit)
+		)
 	}
 
 	// Initialize stores
@@ -61,6 +71,8 @@ func main() {
 	exportHandler := handler.NewExportHandler(classStore, studentStore, attendanceStore)
 	signinHandler := handler.NewSigninHandler(classStore, studentStore, attendanceStore)
 	staticHandler := handler.NewStaticHandler(manageDir, signinDir)
+	log.Printf("Manage static dir: %s", manageDir)
+	log.Printf("Signin static dir: %s", signinDir)
 
 	// Build router
 	mux := http.NewServeMux()
