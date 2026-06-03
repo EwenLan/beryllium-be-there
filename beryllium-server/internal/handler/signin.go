@@ -11,6 +11,7 @@ import (
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/crypto"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/model"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/store"
+	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/ws"
 )
 
 // SigninHandler handles the student sign-in flow.
@@ -18,11 +19,12 @@ type SigninHandler struct {
 	classStore      *store.ClassStore
 	studentStore    *store.StudentStore
 	attendanceStore *store.AttendanceStore
+	hub             *ws.Hub
 }
 
 // NewSigninHandler creates a SigninHandler.
-func NewSigninHandler(classStore *store.ClassStore, studentStore *store.StudentStore, attendanceStore *store.AttendanceStore) *SigninHandler {
-	return &SigninHandler{classStore: classStore, studentStore: studentStore, attendanceStore: attendanceStore}
+func NewSigninHandler(classStore *store.ClassStore, studentStore *store.StudentStore, attendanceStore *store.AttendanceStore, hub *ws.Hub) *SigninHandler {
+	return &SigninHandler{classStore: classStore, studentStore: studentStore, attendanceStore: attendanceStore, hub: hub}
 }
 
 // Page handles GET /signin/{class-id} — serves the sign-in page with injected public key.
@@ -112,6 +114,37 @@ func (h *SigninHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		Name    string `json:"name"`
 	}
 	writeJSON(w, http.StatusOK, signinResponse{Success: true, Name: student.Name})
+
+		// Broadcast updated attendance via WebSocket
+		go h.broadcastAttendance(classID)
+	}
+
+// broadcastAttendance sends the current attendance for a class to all WebSocket clients.
+func (h *SigninHandler) broadcastAttendance(classID string) {
+	records, err := h.attendanceStore.GetByClass(classID)
+	if err != nil {
+		return
+	}
+
+	entries := make([]model.AttendanceEntry, len(records))
+	for i, rec := range records {
+		student, err := h.studentStore.GetByAccount(rec.StudentAccount)
+		name := rec.StudentAccount
+		if err == nil {
+			name = student.Name
+		}
+		entries[i] = model.AttendanceEntry{
+			Account:   rec.StudentAccount,
+			Name:      name,
+			IsPresent: rec.IsPresent,
+		}
+	}
+
+	h.hub.Broadcast(classID, ws.Message{
+		Type:       "attendance_update",
+		ClassID:    classID,
+		Attendance: entries,
+	})
 }
 
 // fallbackSigninHTML is a basic sign-in page served when the built frontend is not available.

@@ -11,6 +11,7 @@ import (
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/config"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/handler"
 	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/store"
+	"github.com/EwenLan/beryllium-be-there/beryllium-server/internal/ws"
 )
 
 func main() {
@@ -63,13 +64,17 @@ func main() {
 	// Initialize session manager
 	sessions := auth.NewSessionManager()
 
+	// Initialize WebSocket hub
+	hub := ws.NewHub()
+
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(adminStore, sessions)
 	studentHandler := handler.NewStudentHandler(studentStore, attendanceStore)
 	classHandler := handler.NewClassHandler(classStore, attendanceStore, studentStore, cfg.Hostname, cfg.Port)
 	attendanceHandler := handler.NewAttendanceHandler(classStore, studentStore, attendanceStore)
 	exportHandler := handler.NewExportHandler(classStore, studentStore, attendanceStore)
-	signinHandler := handler.NewSigninHandler(classStore, studentStore, attendanceStore)
+	signinHandler := handler.NewSigninHandler(classStore, studentStore, attendanceStore, hub)
+	wsHandler := handler.NewWSHandler(hub)
 	staticHandler := handler.NewStaticHandler(manageDir, signinDir)
 	log.Printf("Manage static dir: %s", manageDir)
 	log.Printf("Signin static dir: %s", signinDir)
@@ -100,6 +105,9 @@ func main() {
 
 	// Export route (protected)
 	mux.HandleFunc("GET /api/classes/{id}/export", withAuth(sessions, exportHandler.CSV))
+
+	// WebSocket route (public — auth checked via token param)
+	mux.HandleFunc("GET /ws/classes/{id}/attendance", wsHandler.Attendance)
 
 	// Sign-in routes (public)
 	mux.HandleFunc("GET /signin/{classid}", signinHandler.Page)

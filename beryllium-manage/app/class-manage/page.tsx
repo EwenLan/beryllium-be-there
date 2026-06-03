@@ -272,14 +272,55 @@ function ClassDetailView({
     loadDetail();
   }, [loadDetail]);
 
-  // Poll for attendance updates every 3 seconds
+  // WebSocket connection for real-time attendance updates
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      loadDetail();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [loadDetail, autoRefresh]);
+
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsHost = window.location.port === "8080"
+      ? window.location.host
+      : "localhost:8080";
+    const wsURL = `${wsProtocol}://${wsHost}/ws/classes/${classId}/attendance`;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      ws = new WebSocket(wsURL);
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "attendance_update" && msg.attendance) {
+            setDetail((prev) =>
+              prev ? { ...prev, attendance: msg.attendance } : prev
+            );
+            setLastUpdated(new Date());
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+
+      ws.onclose = () => {
+        // Reconnect after 3 seconds if still active
+        if (autoRefresh) {
+          reconnectTimer = setTimeout(connect, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
+    }
+
+    connect();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, [classId, autoRefresh]);
 
   useEffect(() => {
     if (detail?.signin_url && canvasRef.current) {
