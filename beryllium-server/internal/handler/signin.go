@@ -50,7 +50,10 @@ func (h *SigninHandler) Page(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inject class ID and public key before </head>
-	script := fmt.Sprintf(`<script>window.__CLASS_ID__="%s";window.__CLASS_PUBLIC_KEY__="%s";</script>`, class.ClassID, class.PublicKey)
+	// Use JSON encoding to safely escape the PEM key (which contains newlines) for JavaScript
+	escapedKey, _ := json.Marshal(class.PublicKey)
+	escapedID, _ := json.Marshal(class.ClassID)
+	script := fmt.Sprintf(`<script>window.__CLASS_ID__=%s;window.__CLASS_PUBLIC_KEY__=%s;</script>`, escapedID, escapedKey)
 	injected := strings.Replace(string(html), "</head>", script+"</head>", 1)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
