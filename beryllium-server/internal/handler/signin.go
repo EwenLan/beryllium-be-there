@@ -80,7 +80,7 @@ func (h *SigninHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plainPassword, err := crypto.DecryptOAEP(privKey, ciphertext)
+	plainPassword, err := crypto.DecryptPKCS1v15(privKey, ciphertext)
 	if err != nil {
 		http.Error(w, `{"error":"failed to decrypt password"}`, http.StatusBadRequest)
 		return
@@ -121,6 +121,7 @@ const fallbackSigninHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>课堂签到</title>
+<script src="https://cdn.jsdelivr.net/npm/jsencrypt@3.3.2/bin/jsencrypt.min.js"></script>
 <style>
 body{font-family:system-ui,sans-serif;max-width:400px;margin:60px auto;padding:20px}
 h1{text-align:center;color:#333}
@@ -129,6 +130,7 @@ input{padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px}
 button{padding:12px;font-size:16px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer}
 button:hover{background:#0056b3}
 #msg{margin-top:16px;text-align:center;font-weight:bold}
+.success{color:#28a745}.error{color:#dc3545}
 </style>
 </head>
 <body>
@@ -142,9 +144,8 @@ button:hover{background:#0056b3}
 <div id="msg"></div>
 <script>
 document.getElementById("classId").textContent=window.__CLASS_ID__||"";
-async function base64ToArrayBuffer(b64){const bin=atob(b64);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return bytes.buffer}
-async function encryptPassword(pubKeyB64,password){const der=base64ToArrayBuffer(pubKeyB64);const key=await crypto.subtle.importKey("spki",der,{name:"RSA-OAEP",hash:"SHA-256"},false,["encrypt"]);const enc=new TextEncoder().encode(password);const ct=await crypto.subtle.encrypt({name:"RSA-OAEP"},key,enc);return btoa(String.fromCharCode(...new Uint8Array(ct)))}
-document.getElementById("signinForm").addEventListener("submit",async(e)=>{e.preventDefault();const msg=document.getElementById("msg");msg.style.color="#666";msg.textContent="签到中...";try{const encPwd=await encryptPassword(window.__CLASS_PUBLIC_KEY__,document.getElementById("password").value);const res=await fetch(window.location.pathname,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({account:document.getElementById("account").value,password:encPwd})});const data=await res.json();if(res.ok){msg.style.color="#28a745";msg.textContent="签到成功！"+data.name}else{msg.style.color="#dc3545";msg.textContent=JSON.parse(data.error||'"签到失败"')}}catch(err){msg.style.color="#dc3545";msg.textContent="签到失败: "+err.message}})
+function encryptPassword(pubKeyPEM,password){var enc=new JSEncrypt();enc.setPublicKey(pubKeyPEM);var ct=enc.encrypt(password);if(!ct)throw new Error("encryption failed");return ct}
+document.getElementById("signinForm").addEventListener("submit",async(e)=>{e.preventDefault();var msg=document.getElementById("msg");msg.className="";msg.textContent="签到中...";try{var encPwd=encryptPassword(window.__CLASS_PUBLIC_KEY__,document.getElementById("password").value);var res=await fetch(window.location.pathname,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({account:document.getElementById("account").value,password:encPwd})});var data=await res.json();if(res.ok){msg.className="success";msg.textContent="签到成功！"+data.name}else{msg.className="error";msg.textContent=data.error||"签到失败"}}catch(err){msg.className="error";msg.textContent="签到失败: "+err.message}})
 </script>
 </body>
 </html>`

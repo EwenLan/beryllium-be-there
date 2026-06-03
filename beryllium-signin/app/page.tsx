@@ -49,7 +49,7 @@ export default function SignInPage() {
     setMessageType("");
 
     try {
-      const encryptedPassword = await encryptPassword(publicKey, password);
+      const encryptedPassword = encryptPassword(publicKey, password);
       const res = await fetch(
         `${window.location.origin}/signin/${classId}`,
         {

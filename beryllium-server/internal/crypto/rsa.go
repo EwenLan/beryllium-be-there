@@ -3,9 +3,8 @@ package crypto
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/pem"
 )
 
 // GenerateRSAKeyPair creates a 2048-bit RSA key pair.
@@ -13,51 +12,59 @@ func GenerateRSAKeyPair() (*rsa.PrivateKey, error) {
 	return rsa.GenerateKey(rand.Reader, 2048)
 }
 
-// ExportPublicKey encodes a public key as a base64-encoded PKIX/SPKI DER.
+// ExportPublicKey encodes a public key in PEM format.
 func ExportPublicKey(pub *rsa.PublicKey) (string, error) {
 	der, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(der), nil
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: der,
+	}
+	return string(pem.EncodeToMemory(block)), nil
 }
 
-// ExportPrivateKey encodes a private key as a base64-encoded PKCS#8 DER.
+// ExportPrivateKey encodes a private key in PEM format.
 func ExportPrivateKey(priv *rsa.PrivateKey) (string, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(der), nil
+	block := &pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: der,
+	}
+	return string(pem.EncodeToMemory(block)), nil
 }
 
-// ParsePublicKey decodes a base64 PKIX public key string.
+// ParsePublicKey decodes a PEM-encoded public key string.
 func ParsePublicKey(encoded string) (*rsa.PublicKey, error) {
-	der, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, err
+	block, _ := pem.Decode([]byte(encoded))
+	if block == nil {
+		return nil, nil
 	}
-	pub, err := x509.ParsePKIXPublicKey(der)
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
 	return pub.(*rsa.PublicKey), nil
 }
 
-// ParsePrivateKey decodes a base64 PKCS#8 private key string.
+// ParsePrivateKey decodes a PEM-encoded private key string.
 func ParsePrivateKey(encoded string) (*rsa.PrivateKey, error) {
-	der, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, err
+	block, _ := pem.Decode([]byte(encoded))
+	if block == nil {
+		return nil, nil
 	}
-	priv, err := x509.ParsePKCS8PrivateKey(der)
+	priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
 	return priv.(*rsa.PrivateKey), nil
 }
 
-// DecryptOAEP decrypts an RSA-OAEP encrypted ciphertext.
-func DecryptOAEP(priv *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
-	return rsa.DecryptOAEP(sha256.New(), rand.Reader, priv, ciphertext, nil)
+// DecryptPKCS1v15 decrypts an RSA PKCS#1 v1.5 encrypted ciphertext.
+func DecryptPKCS1v15(priv *rsa.PrivateKey, ciphertext []byte) ([]byte, error) {
+	return rsa.DecryptPKCS1v15(rand.Reader, priv, ciphertext)
 }
