@@ -18,9 +18,10 @@ beryllium-be-there/
 ```
 浏览器 ──→ Go Server (:8080) ──→ JSON 文件存储 (data/*.json)
                 │
-                ├── /                  → beryllium-manage 管理页面
-                ├── /signin/{classId}  → beryllium-signin 签到页面 (GET) / 签到接口 (POST)
-                └── /api/*             → REST API
+                ├── /                       → beryllium-manage 管理页面
+                ├── /signin/{classId}       → beryllium-signin 签到页面 (GET) / 签到接口 (POST)
+                ├── /api/*                  → REST API
+                └── /ws/classes/{id}/...    → WebSocket 实时推送
 ```
 
 ## 技术栈
@@ -33,6 +34,8 @@ beryllium-be-there/
 | 数据库 | JSON 文件（演示项目） |
 | 密码存储 | bcrypt |
 | 传输加密 | RSA-2048 PKCS#1 v1.5（jsencrypt 纯 JS 实现） |
+| 实时推送 | WebSocket（gorilla/websocket），签到状态即时同步 |
+| 静态资源 | Go `embed.FS` 编译时嵌入 |
 | 配置管理 | TOML 配置文件 + 环境变量覆盖 |
 
 ## 核心设计
@@ -61,6 +64,34 @@ hostname = ""
 ```
 
 `hostname` 留空时，服务器自动遍历本机网卡获取局域网 IPv4 地址，用于生成签到链接和二维码。
+
+### 实时推送机制
+
+当学生在签到页面完成签到时，服务端通过 WebSocket 实时将签到状态变更推送给所有正在查看该课堂管理页面的管理员：
+
+```
+学生签到 → POST /signin/{id}
+              │
+              ▼
+       SigninHandler.Submit()
+              │
+              ├── 更新 attendance JSON
+              └── Hub.Broadcast(classID, "attendance_update")
+                        │
+                        ▼
+              ┌─────────────────┐
+              │   WebSocket Hub  │  (per-class rooms)
+              └───┬─────────┬───┘
+                  │         │
+          conn1 (PC)    conn2 (PC)
+                  │         │
+                  ▼         ▼
+         管理端页面即时更新签到状态
+```
+
+- 管理端连接 `ws://{host}:{port}/ws/classes/{id}/attendance`
+- 断线自动重连（3 秒间隔）
+- 可随时关闭自动刷新，切换为手动刷新模式
 
 ### 签到流程
 
@@ -120,6 +151,7 @@ SignInRecord { StudentAccount, IsPresent, SignedAt }
 | GET | `/api/classes/{id}/export` | Yes | 导出 CSV |
 | GET | `/signin/{classId}` | No | 签到页面（注入 classId + PEM 公钥） |
 | POST | `/signin/{classId}` | No | 提交签到 |
+| GET | `/ws/classes/{id}/attendance` | No | WebSocket 签到状态实时推送 |
 
 ## 快速开始
 
@@ -200,6 +232,9 @@ beryllium-server/
 ├── main.go                     # 入口，路由注册
 ├── go.mod / go.sum
 ├── config.toml                 # 服务器配置文件
+├── web/                        # 编译时嵌入的静态资源
+│   ├── embed.go                # //go:embed 声明
+│   └── signin_fallback.html    # 回退签到页面（当构建产物不可用时）
 ├── data/                       # 运行时 JSON 数据库（自动生成）
 │   ├── admins.json
 │   ├── students.json
@@ -217,9 +252,10 @@ beryllium-server/
     │   └── attendance_store.go # 签到记录持久化
     ├── crypto/
     │   ├── password.go         # bcrypt 密码哈希
-    │   ├── rsa.go              # RSA 密钥生成与 PKCS#1 v1.5 加解密
+    │   ├── rsa.go              # RSA 密钥生成 + PEM 格式导入导出 + PKCS#1 v1.5 解密
     │   └── uuid.go             # UUID v4 生成
     ├── auth/session.go         # Token 会话管理
+    ├── ws/hub.go               # WebSocket Hub（per-class 连接管理 + 广播）
     └── handler/
         ├── helpers.go          # 通用工具函数
         ├── auth.go             # 登录/登出接口
@@ -227,7 +263,8 @@ beryllium-server/
         ├── class.go            # 课堂管理接口（含签到 URL 生成）
         ├── attendance.go       # 签到状态接口
         ├── export.go           # CSV 导出接口
-        ├── signin.go           # 签到页面 + 签到提交（含回退 HTML）
+        ├── signin.go           # 签到页面（PEM 公钥注入）+ 签到提交 + 广播
+        ├── ws.go               # WebSocket 升级处理
         └── static.go           # 前端静态文件服务（多路径探测）
 ```
 
