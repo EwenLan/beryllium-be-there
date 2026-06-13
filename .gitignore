@@ -75,3 +75,12 @@ coverage
 !.yarn/releases
 !.yarn/versions
 publish/
+
+# === Database ===
+data/
+
+# === Documents ===
+projects/
+
+# === Packages ===
+*.zip
